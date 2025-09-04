@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Demo Book Thợ - Leaflet</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- CSS & JS của Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <style>
+    #map {
+      height: 500px;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+
+<h3>Bản đồ book thợ sửa chữa điện nước</h3>
+<div id="map"></div>
+
+<script>
+  // Tạo bản đồ, set view tại Quy Nhơn
+  var map = L.map('map').setView([13.7820, 109.2194], 13);
+
+  // Load tile từ OpenStreetMap
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
+  }).addTo(map);
+
+  // Marker vị trí khách
+  var customerMarker = L.marker([13.7820, 109.2194]).addTo(map)
+    .bindPopup("<b>Khách hàng</b><br>Địa điểm sửa điện nước.").openPopup();
+
+  // Danh sách thợ mẫu (giả sử có 3 thợ ở gần)
+  var workers = [
+    { name: "Thợ A", lat: 13.7865, lng: 109.2300 },
+    { name: "Thợ B", lat: 13.7750, lng: 109.2100 },
+    { name: "Thợ C", lat: 13.7900, lng: 109.2250 }
+  ];
+
+  // Vẽ marker cho thợ
+  workers.forEach(function(worker) {
+    L.marker([worker.lat, worker.lng]).addTo(map)
+      .bindPopup("<b>" + worker.name + "</b><br>Cách khách khoảng vài km.");
+  });
+</script>
+
+</body>
+</html>
