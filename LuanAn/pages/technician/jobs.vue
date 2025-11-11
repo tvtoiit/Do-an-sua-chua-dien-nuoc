@@ -344,7 +344,7 @@
 
               <div class="text-overline text-grey mb-1">Địa chỉ</div>
               <div class="text-subtitle-1 font-weight-medium mb-4">
-                {{ selectedJob.address || "123 Đường Lê Lợi, Quận 1, TP.HCM" }}
+                {{ selectedUser?.address }}
               </div>
             </v-col>
 
@@ -376,6 +376,15 @@
                 }}
               </div>
 
+              <!-- Bản đồ hiển thị vị trí khách hàng -->
+              <div id="map" style="height: 300px; width: 100%; border-radius: 10px; margin-top: 10px;"></div>
+
+              <!-- Khoảng cách hiển thị -->
+              <div class="text-subtitle-2 mt-2">
+                Khoảng cách đến cửa hàng: <strong>{{ distance }}</strong> km
+              </div>
+
+
               <div v-if="selectedJob.rejectReason" class="mt-2">
                 <div class="text-overline text-error mb-1">Lý do từ chối</div>
                 <div class="text-subtitle-1 pa-3 bg-error-lighten-5 rounded-lg">
@@ -390,9 +399,7 @@
 
         <v-card-actions class="pa-6">
           <v-spacer />
-          <v-btn color="grey" variant="tonal" @click="detailDialog = false"
-            >Đóng</v-btn
-          >
+          <v-btn color="grey" variant="tonal" @click="closeDetailDialog">Đóng</v-btn>
           <v-btn
             v-if="selectedJob.status === 'Pending'"
             color="primary"
@@ -424,6 +431,10 @@
 import { ref, computed, onMounted } from "vue";
 import axios from "axios";
 import { useCookie } from "#app";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+
+
 
 // State
 const jobs = ref([]);
@@ -432,6 +443,7 @@ const rejectDialog = ref(false);
 const detailDialog = ref(false);
 const rejectReason = ref("");
 const selectedJob = ref(null);
+const selectedUser = ref(null);
 const searchQuery = ref("");
 const statusFilter = ref("");
 const sortBy = ref("appointmentDate_asc");
@@ -440,6 +452,10 @@ const snackbar = ref({
   text: "",
   color: "success",
 });
+
+// Xử lí gg map
+const map = ref(null);
+const distance = ref(null);
 
 // Options
 const statusOptions = [
@@ -589,6 +605,7 @@ const fetchJobs = async () => {
       appliance: req.appliance?.applianceName || "N/A",
       service: req.service?.serviceName || "N/A",
       appointmentDate: req.appointmentDate,
+      customerId: req.customer?.userId,
       customerName: req.customer?.fullName || "Không rõ",
       customerPhone: req.customer?.phoneNumber,
       address: req.address,
@@ -763,9 +780,103 @@ const confirmReject = async () => {
   rejectDialog.value = false;
 };
 
-const viewJobDetails = (item) => {
-  selectedJob.value = item;
-  detailDialog.value = true;
+// Đóng dialog chi tiết công việc và dọn dẹp bản đồ
+const closeDetailDialog = () => {
+  detailDialog.value = false;
+  selectedJob.value = null;
+  selectedUser.value = null;
+  distance.value = null;
+
+  if (map.value) {
+    map.value.remove();
+    map.value = null;
+  }
+};
+
+// Xem chi tiết công việc
+const viewJobDetails = async (item) => {
+  try {
+    selectedJob.value = item;
+
+    if (item.customerId) {
+      const res = await axios.get(`http://localhost:9090/api/users/${item.customerId}`);
+      selectedUser.value = res.data;
+    } else {
+      console.warn("Job không có customerId, không thể lấy thông tin user");
+    }
+
+    detailDialog.value = true;
+
+    // Đợi dialog render xong trước khi vẽ map
+    setTimeout(() => {
+      initMap(selectedUser.value?.address);
+    }, 300);
+
+  } catch (error) {
+    console.error("Lỗi khi lấy thông tin user:", error);
+  }
+};
+
+// Khởi tạo bản đồ với Leaflet và hiển thị vị trí khách hàng
+const initMap = async (customerAddress) => {
+  try {
+    if (!customerAddress) {
+      console.warn("Không có địa chỉ khách hàng");
+      return;
+    }
+
+    // Sử dụng proxy AllOrigins để bypass CORS
+    const proxyUrl = "https://api.allorigins.win/get?url=";
+    const targetUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(customerAddress)}`;
+    
+    const response = await fetch(proxyUrl + encodeURIComponent(targetUrl));
+    const text = await response.text();
+    const data = JSON.parse(JSON.parse(text).contents);
+
+    if (!data.length) {
+      console.warn("Không tìm thấy vị trí khách hàng");
+      return;
+    }
+
+    const customerLocation = {
+      lat: parseFloat(data[0].lat),
+      lng: parseFloat(data[0].lon),
+    };
+
+    // Nếu có map cũ thì remove
+    if (map.value) {
+      map.value.remove();
+    }
+
+    // Bản đồ với vị trí cửa hàng
+    const shopLocation = { lat: 21.0278, lng: 105.8342 }; // Ví dụ Hà Nội
+    map.value = L.map("map").setView([shopLocation.lat, shopLocation.lng], 12);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(map.value);
+
+    // Marker cửa hàng
+    const shopMarker = L.marker([shopLocation.lat, shopLocation.lng]).addTo(map.value)
+      .bindPopup("Cửa hàng");
+
+    // Marker khách hàng
+    const customerMarker = L.marker([customerLocation.lat, customerLocation.lng]).addTo(map.value)
+      .bindPopup("Khách hàng");
+
+    // Zoom vừa 2 marker
+    const bounds = L.latLngBounds([shopMarker.getLatLng(), customerMarker.getLatLng()]);
+    map.value.fitBounds(bounds);
+
+    // Tính khoảng cách (km) dùng hàm Leaflet.distanceTo
+    distance.value = (map.value.distance(
+      L.latLng(shopLocation.lat, shopLocation.lng),
+      L.latLng(customerLocation.lat, customerLocation.lng)
+    ) / 1000).toFixed(2);
+
+  } catch (error) {
+    console.error("Lỗi khi khởi tạo bản đồ:", error);
+  }
 };
 
 const clearFilters = () => {
